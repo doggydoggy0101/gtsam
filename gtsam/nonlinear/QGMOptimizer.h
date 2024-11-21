@@ -42,19 +42,19 @@ template<class QGMParameters>
 class QGMOptimizer {
  public:
   /// For each parameter, specify the corresponding optimizer: e.g., GaussNewtonParams -> GaussNewtonOptimizer.
-  typedef typename GncParameters::OptimizerType BaseOptimizer;
+  typedef typename QGMParameters::OptimizerType BaseOptimizer;
 
  private:
-  NonlinearFactorGraph nfg_; ///< Original factor graph to be solved by GNC.
-  Values state_; ///< Initial values to be used at each iteration by GNC.
-  QGMParameters params_; ///< GNC parameters.
-  Vector weights_;  ///< Weights associated to each factor in GNC (this could be a local variable in optimize, but it is useful to make it accessible from outside).
+  NonlinearFactorGraph nfg_; ///< Original factor graph to be solved by QGM.
+  Values state_; ///< Initial values to be used at each iteration by QGM.
+  QGMParameters params_; ///< QGM parameters.
+  Vector weights_;  ///< Weights associated to each factor in QGM (this could be a local variable in optimize, but it is useful to make it accessible from outside).
   Vector barcSq_;  ///< Inlier thresholds. A factor is considered an inlier if factor.error() < barcSq_[i] (where i is the position of the factor in the factor graph. Note that factor.error() whitens by the covariance.
 
  public:
   /// Constructor.
   QGMOptimizer(const NonlinearFactorGraph& graph, const Values& initialValues,
-               const QGMParameters& params = GncParameters())
+               const QGMParameters& params = QGMParameters())
       : state_(initialValues),
         params_(params) {
 
@@ -189,8 +189,8 @@ class QGMOptimizer {
     int nrUnknownInOrOut = nfg_.size() - ( params_.knownInliers.size() + params_.knownOutliers.size() );
     // ^^ number of measurements that are not known to be inliers or outliers 
     if (nrUnknownInOrOut == 0) { // no need to even call QGM in this case
-      if (nrUnknownInOrOut==0 && params_.verbosity >= GncParameters::Verbosity::SUMMARY) {
-        std::cout << "GNC Optimizer stopped because all measurements are already known to be inliers or outliers"
+      if (nrUnknownInOrOut==0 && params_.verbosity >= QGMParameters::Verbosity::SUMMARY) {
+        std::cout << "QGM Optimizer stopped because all measurements are already known to be inliers or outliers"
                   << std::endl;
       }
       if (params_.verbosity >= QGMParameters::Verbosity::VALUES) {
@@ -210,7 +210,7 @@ class QGMOptimizer {
         result.print("result\n");
       }
       // weights update
-      weights_ = calculateWeights(result, mu);
+      weights_ = calculateWeights(result);
 
       // variable/values update
       NonlinearFactorGraph graph_iter = this->makeWeightedGraph(weights_);
@@ -280,7 +280,7 @@ class QGMOptimizer {
   }
 
   /// Calculate QGM weights.
-  Vector calculateWeights(const Values& currentEstimate, const double mu) {
+  Vector calculateWeights(const Values& currentEstimate) {
     Vector weights = initializeWeightsFromKnownInliersAndOutliers();
 
     // do not update the weights that the user has decided are known inliers
@@ -302,7 +302,7 @@ class QGMOptimizer {
     for (size_t k : unknownWeights) {
       if (nfg_[k]) {
         double r2_k = nfg_[k]->error(currentEstimate); // squared residual
-        weights[k] = 1 / std::pow((r2_k + c2_[k]), 2);
+        weights[k] = 1 / std::pow((r2_k + barcSq_[k]), 2);
       }
     }
     return weights;

@@ -55,7 +55,7 @@ class QGMParams {
       : baseOptimizerParams() {
   }
 
-  /// GNC parameters.
+  /// QGM parameters.
   BaseOptimizerParameters baseOptimizerParams;  ///< Optimization parameters used to solve the weighted least squares problem at each QGM iteration
   /// any other specific QGM parameters:
   size_t maxIterations = 100;  ///<  Maximum number of iterations
@@ -69,7 +69,7 @@ class QGMParams {
   ///< Slots in the factor graph corresponding to measurements that we know are outliers
   IndexVector knownOutliers;
 
-  /// Set the maximum number of iterations in GNC (changing the max nr of iters might lead to less accurate solutions and is not recommended).
+  /// Set the maximum number of iterations in QGM (changing the max nr of iters might lead to less accurate solutions and is not recommended).
   void setMaxIterations(const size_t maxIter) {
     std::cout
         << "setMaxIterations: changing the max nr of iters might lead to less accurate solutions and is not recommended! "
@@ -102,7 +102,7 @@ class QGMParams {
 
   /** (Optional) Provide a vector of measurements that must be considered outliers. The enties in the vector
    * corresponds to the slots in the factor graph. For instance, if you have a nonlinear factor graph nfg,
-   * and you provide  knownOut = {0, 2, 15}, GNC will not apply outlier rejection to nfg[0], nfg[2], and nfg[15].
+   * and you provide  knownOut = {0, 2, 15}, QGM will not apply outlier rejection to nfg[0], nfg[2], and nfg[15].
    * */
   void setKnownOutliers(const IndexVector& knownOut) {
     for (size_t i = 0; i < knownOut.size(); i++){

@@ -12,6 +12,11 @@
 /**
  * @file QGMExample.cpp
  * @brief Simple example showcasing a QGM-based solver
+ * @author Bang-Shien Chen
+ * 
+ * modified by
+ * @file GNCExample.cpp
+ * @brief Simple example showcasing a Graduated Non-Convexity based solver
  * @author Achintya Mohan
  */
 
@@ -23,8 +28,8 @@
  */
 
 #include <gtsam/geometry/Pose2.h>
-#include <gtsam/nonlinear/GncOptimizer.h>
-#include <gtsam/nonlinear/GncParams.h>
+#include <gtsam/nonlinear/QGMOptimizer.h>
+#include <gtsam/nonlinear/QGMParams.h>
 #include <gtsam/nonlinear/LevenbergMarquardtOptimizer.h>
 #include <gtsam/nonlinear/LevenbergMarquardtParams.h>
 #include <gtsam/nonlinear/NonlinearFactorGraph.h>
@@ -61,12 +66,13 @@ int main() {
   lmParams.setMaxIterations(1000);
   lmParams.setRelativeErrorTol(1e-5);
 
-  // Set GNC-specific options
-  GncParams<LevenbergMarquardtParams> gncParams(lmParams);
-  gncParams.setLossType(GncLossType::TLS);
+  // Set QGM-specific options
+  QGMParams<LevenbergMarquardtParams> qgmParams(lmParams);
+  qgmParams.setRelativeCostTol(1e-6);
+  qgmParams.print("Parameters:");
 
   // Optimize the graph and print results
-  GncOptimizer<GncParams<LevenbergMarquardtParams>> optimizer(graph, initial, gncParams);
+  QGMOptimizer<QGMParams<LevenbergMarquardtParams>> optimizer(graph, initial, qgmParams);
   Values result = optimizer.optimize();
   result.print("Final Result:");
 
