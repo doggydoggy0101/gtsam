@@ -62,35 +62,99 @@ TableFactor::TableFactor(const DiscreteKeys& dkeys,
     : TableFactor(dkeys, DecisionTreeFactor(dkeys, dtree)) {}
 
 /**
- * @brief Compute the correct ordering of the leaves in the decision tree.
+ * @brief Compute the indexing of the leaves in the decision tree based on the
+ * assignment and add the (index, leaf) pair to a SparseVector.
  *
- * This is done by first taking all the values which have modulo 0 value with
- * the cardinality of the innermost key `n`, and we go up to modulo n.
+ * We visit each leaf in the tree, and using the cardinalities of the keys,
+ * compute the correct index to add the leaf to a SparseVector which
+ *  is then used to create the TableFactor.
  *
  * @param dt The DecisionTree
- * @return std::vector<double>
+ * @return Eigen::SparseVector<double>
  */
-std::vector<double> ComputeLeafOrdering(const DiscreteKeys& dkeys,
-                                        const DecisionTreeFactor& dt) {
-  std::vector<double> probs = dt.probabilities();
-  std::vector<double> ordered;
+static Eigen::SparseVector<double> ComputeSparseTable(
+    const DiscreteKeys& dkeys, const DecisionTreeFactor& dt) {
+  // SparseVector needs to know the maximum possible index,
+  // so we compute the product of cardinalities.
+  size_t cardinalityProduct = 1;
+  for (auto&& [_, c] : dt.cardinalities()) {
+    cardinalityProduct *= c;
+  }
+  Eigen::SparseVector<double> sparseTable(cardinalityProduct);
+  size_t nrValues = 0;
+  dt.visit([&nrValues](double x) {
+    if (x > 0) nrValues += 1;
+  });
+  sparseTable.reserve(nrValues);
 
-  size_t n = dkeys[0].second;
+  std::set<Key> allKeys(dt.keys().begin(), dt.keys().end());
 
-  for (size_t k = 0; k < n; ++k) {
-    for (size_t idx = 0; idx < probs.size(); ++idx) {
-      if (idx % n == k) {
-        ordered.push_back(probs[idx]);
+  /**
+   * @brief Functor which is called by the DecisionTree for each leaf.
+   * For each leaf value, we use the corresponding assignment to compute a
+   * corresponding index into a SparseVector. We then populate sparseTable with
+   * the value at the computed index.
+   *
+   * Takes advantage of the sparsity of the DecisionTree to be efficient. When
+   * merged branches are encountered, we enumerate over the missing keys.
+   *
+   */
+  auto op = [&](const Assignment<Key>& assignment, double p) {
+    if (p > 0) {
+      // Get all the keys involved in this assignment
+      std::set<Key> assignmentKeys;
+      for (auto&& [k, _] : assignment) {
+        assignmentKeys.insert(k);
+      }
+
+      // Find the keys missing in the assignment
+      std::vector<Key> diff;
+      std::set_difference(allKeys.begin(), allKeys.end(),
+                          assignmentKeys.begin(), assignmentKeys.end(),
+                          std::back_inserter(diff));
+
+      // Generate all assignments using the missing keys
+      DiscreteKeys extras;
+      for (auto&& key : diff) {
+        extras.push_back({key, dt.cardinality(key)});
+      }
+      auto&& extraAssignments = DiscreteValues::CartesianProduct(extras);
+
+      for (auto&& extra : extraAssignments) {
+        // Create new assignment using the extra assignment
+        DiscreteValues updatedAssignment(assignment);
+        updatedAssignment.insert(extra);
+
+        // Generate index and add to the sparse vector.
+        Eigen::Index idx = 0;
+        size_t previousCardinality = 1;
+        // We go in reverse since a DecisionTree has the highest label first
+        for (auto&& it = updatedAssignment.rbegin();
+             it != updatedAssignment.rend(); it++) {
+          idx += previousCardinality * it->second;
+          previousCardinality *= dt.cardinality(it->first);
+        }
+        sparseTable.coeffRef(idx) = p;
       }
     }
-  }
-  return ordered;
+  };
+
+  // Visit each leaf in `dt` to get the Assignment and leaf value
+  // to populate the sparseTable.
+  dt.visitWith(op);
+
+  return sparseTable;
 }
 
 /* ************************************************************************ */
 TableFactor::TableFactor(const DiscreteKeys& dkeys,
                          const DecisionTreeFactor& dtf)
-    : TableFactor(dkeys, ComputeLeafOrdering(dkeys, dtf)) {}
+    : TableFactor(dkeys, ComputeSparseTable(dkeys, dtf)) {}
+
+/* ************************************************************************ */
+TableFactor::TableFactor(const DecisionTreeFactor& dtf)
+    : TableFactor(dtf.discreteKeys(),
+                  ComputeSparseTable(dtf.discreteKeys(), dtf)) {}
 
 /* ************************************************************************ */
 TableFactor::TableFactor(const DiscreteConditional& c)
@@ -98,7 +162,17 @@ TableFactor::TableFactor(const DiscreteConditional& c)
 
 /* ************************************************************************ */
 Eigen::SparseVector<double> TableFactor::Convert(
-    const std::vector<double>& table) {
+    const DiscreteKeys& keys, const std::vector<double>& table) {
+  size_t max_size = 1;
+  for (auto&& [_, cardinality] : keys.cardinalities()) {
+    max_size *= cardinality;
+  }
+  if (table.size() != max_size) {
+    throw std::runtime_error(
+        "The cardinalities of the keys don't match the number of values in the "
+        "input.");
+  }
+
   Eigen::SparseVector<double> sparse_table(table.size());
   // Count number of nonzero elements in table and reserve the space.
   const uint64_t nnz = std::count_if(table.begin(), table.end(),
@@ -113,13 +187,14 @@ Eigen::SparseVector<double> TableFactor::Convert(
 }
 
 /* ************************************************************************ */
-Eigen::SparseVector<double> TableFactor::Convert(const std::string& table) {
+Eigen::SparseVector<double> TableFactor::Convert(const DiscreteKeys& keys,
+                                                 const std::string& table) {
   // Convert string to doubles.
   std::vector<double> ys;
   std::istringstream iss(table);
   std::copy(std::istream_iterator<double>(iss), std::istream_iterator<double>(),
             std::back_inserter(ys));
-  return Convert(ys);
+  return Convert(keys, ys);
 }
 
 /* ************************************************************************ */
@@ -128,12 +203,13 @@ bool TableFactor::equals(const DiscreteFactor& other, double tol) const {
     return false;
   } else {
     const auto& f(static_cast<const TableFactor&>(other));
-    return sparse_table_.isApprox(f.sparse_table_, tol);
+    return Base::equals(other, tol) &&
+           sparse_table_.isApprox(f.sparse_table_, tol);
   }
 }
 
 /* ************************************************************************ */
-double TableFactor::operator()(const DiscreteValues& values) const {
+double TableFactor::evaluate(const Assignment<Key>& values) const {
   // a b c d => D * (C * (B * (a) + b) + c) + d
   uint64_t idx = 0, card = 1;
   for (auto it = sorted_dkeys_.rbegin(); it != sorted_dkeys_.rend(); ++it) {
@@ -180,6 +256,7 @@ DecisionTreeFactor TableFactor::toDecisionTreeFactor() const {
   for (auto i = 0; i < sparse_table_.size(); i++) {
     table.push_back(sparse_table_.coeff(i));
   }
+  // NOTE(Varun): This constructor is really expensive!!
   DecisionTreeFactor f(dkeys, table);
   return f;
 }
@@ -249,7 +326,8 @@ void TableFactor::print(const string& s, const KeyFormatter& formatter) const {
     for (auto&& kv : assignment) {
       cout << "(" << formatter(kv.first) << ", " << kv.second << ")";
     }
-    cout << " | " << it.value() << " | " << it.index() << endl;
+    cout << " | " << std::setw(10) << std::left << it.value() << " | "
+         << it.index() << endl;
   }
   cout << "number of nnzs: " << sparse_table_.nonZeros() << endl;
 }

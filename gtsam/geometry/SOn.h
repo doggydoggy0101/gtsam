@@ -33,6 +33,7 @@
 #include <type_traits>
 #include <vector>
 #include <random>
+#include <cassert>
 
 namespace gtsam {
 
@@ -53,7 +54,7 @@ constexpr int NSquaredSO(int N) { return (N < 0) ? Eigen::Dynamic : N * N; }
 template <int N>
 class SO : public LieGroup<SO<N>, internal::DimensionSO(N)> {
  public:
-  enum { dimension = internal::DimensionSO(N) };
+  inline constexpr static auto dimension = internal::DimensionSO(N);
   using MatrixNN = Eigen::Matrix<double, N, N>;
   using VectorN2 = Eigen::Matrix<double, internal::NSquaredSO(N), 1>;
   using MatrixDD = Eigen::Matrix<double, dimension, dimension>;

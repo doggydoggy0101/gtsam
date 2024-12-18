@@ -168,13 +168,9 @@ class GTSAM_EXPORT DiscreteConditional
     static_cast<const BaseConditional*>(this)->print(s, formatter);
   }
 
-  /// Evaluate, just look up in AlgebraicDecisionTree
-  double evaluate(const DiscreteValues& values) const {
-    return ADT::operator()(values);
-  }
-
-  using DecisionTreeFactor::error;       ///< DiscreteValues version
-  using DecisionTreeFactor::operator();  ///< DiscreteValues version
+  using BaseFactor::error;       ///< DiscreteValues version
+  using BaseFactor::evaluate;    ///< DiscreteValues version
+  using BaseFactor::operator();  ///< DiscreteValues version
 
   /**
    * @brief restrict to given *parent* values.
